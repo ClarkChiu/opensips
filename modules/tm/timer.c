@@ -383,6 +383,7 @@ inline static void final_response_handler( struct timer_link *fr_tl )
 	struct retr_buf* r_buf;
 	struct cell *t;
 	branch_bm_t cancel_bitmap = BRANCH_BM_ZERO;
+	int code = 408;
 
 	if (fr_tl==0){
 		/* or BUG?, ignoring it for now */
@@ -409,7 +410,13 @@ inline static void final_response_handler( struct timer_link *fr_tl )
 	if (r_buf->activ_type==TYPE_LOCAL_CANCEL)
 	{
 		LM_DBG("stop retr for Local Cancel\n");
-		return;
+		/* RFC 3261, section 9.1: if the INVITE gets no final reply within
+		 * 64*T1 after the CANCEL, consider it cancelled. This is the
+		 * CANCEL's FR timer (fr_timeout), which its replies do not stop. */
+		if (!is_invite(t) || t->uas.status>=200
+		|| TM_BRANCH(t, r_buf->branch).last_received>=200)
+			return;
+		code = 487;
 	}
 
 	/* FR for replies (negative INVITE replies) */
@@ -449,7 +456,7 @@ inline static void final_response_handler( struct timer_link *fr_tl )
 		set_cancel_extra_hdrs( NULL, 0);
 	}
 
-	switch(r_buf->retr_list) {
+	if (code==408) switch(r_buf->retr_list) {
 	case FR_TIMER_LIST:
 		if_update_stat(tm_enable_stats, tm_timeout_fr, 1); break;
 	case FR_INV_TIMER_LIST:
@@ -458,8 +465,10 @@ inline static void final_response_handler( struct timer_link *fr_tl )
 	}
 	/* lock reply processing to determine how to proceed reliably */
 	LOCK_REPLIES( t );
-	LM_DBG("Cancel sent out, sending 408 (%p)\n", t);
-	fake_reply(t, r_buf->branch, 408 );
+	if (code==487) /* the branch ends now, so must its own FR timer */
+		reset_timer( &TM_BRANCH(t, r_buf->branch).request.fr_timer );
+	LM_DBG("Cancel sent out, sending %d (%p)\n", code, t);
+	fake_reply(t, r_buf->branch, code );
 
 	/* flush the context */
 	if (current_processing_ctx==NULL)
