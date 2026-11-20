@@ -1683,11 +1683,8 @@ int reply_received( struct sip_msg  *p_msg )
 
 	/* it's a cancel which is not e2e ? */
 	if ( get_cseq(p_msg)->method_id==METHOD_CANCEL && is_invite(t) ) {
-		/* ... then just stop timers */
+		/* ... then just stop retransmissions, see final_response_handler() */
 		reset_timer( &uac->local_cancel.retr_timer);
-		if ( msg_status >= 200 ) {
-				reset_timer( &uac->local_cancel.fr_timer);
-		}
 		LM_DBG("reply to local CANCEL processed\n");
 
 		if (has_tran_tmcbs( t, TMCB_MSG_MATCHED_IN) )
